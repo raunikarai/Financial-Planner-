@@ -56,6 +56,15 @@ The app targets individuals who want clarity, control, and confidence over their
 
 ---
 
+### Persona 4: The Retiree
+**Age:** 55+  
+**Income:** Fixed (pension, retirement savings, investments)  
+**Goals:** Wealth preservation, stable income generation, healthcare planning  
+**Pain Points:** Managing fixed income against inflation, healthcare expenses, avoiding risky investments  
+**Key Features Used:** Conservative investment planning, expense tracking, analytics, budget alerts
+
+---
+
 ## 4. Core Features
 
 ### 4.1 Budget Planning
