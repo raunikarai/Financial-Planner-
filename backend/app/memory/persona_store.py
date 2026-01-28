@@ -1,7 +1,13 @@
-"""Persona store for user financial profile memory."""
+"""Persona store for user financial profile memory.
+
+This module provides a facade over the persona repository,
+maintaining the same interface for backward compatibility.
+"""
 
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from app.repositories import persona_repo
 
 
 @dataclass
@@ -12,50 +18,45 @@ class Persona:
     primary_goal: Optional[str] = None  # e.g., "savings", "investment", "debt_repayment"
 
 
-# In-memory persona storage (keyed by user_id)
-_persona_store: dict[str, Persona] = {}
-
-
 def get_persona(user_id: str = "default") -> Persona:
     """
-    Get persona for a user, creating empty one if not exists.
+    Get persona for a user from database.
     
     Args:
         user_id: The user identifier
         
     Returns:
-        The user's persona
+        The user's persona as a Persona dataclass
     """
-    if user_id not in _persona_store:
-        _persona_store[user_id] = Persona()
-    return _persona_store[user_id]
+    data = persona_repo.get_persona(user_id)
+    return Persona(
+        monthly_income=data.get("monthly_income"),
+        risk_level=data.get("risk_level"),
+        primary_goal=data.get("primary_goal")
+    )
 
 
 def set_income(income: float, user_id: str = "default") -> Persona:
     """Set user's monthly income."""
-    persona = get_persona(user_id)
-    persona.monthly_income = income
-    return persona
+    persona_repo.upsert_persona(user_id, {"monthly_income": income})
+    return get_persona(user_id)
 
 
 def set_risk_level(risk_level: str, user_id: str = "default") -> Persona:
     """Set user's risk tolerance level."""
-    persona = get_persona(user_id)
-    persona.risk_level = risk_level.lower()
-    return persona
+    persona_repo.upsert_persona(user_id, {"risk_level": risk_level.lower()})
+    return get_persona(user_id)
 
 
 def set_primary_goal(goal: str, user_id: str = "default") -> Persona:
     """Set user's primary financial goal."""
-    persona = get_persona(user_id)
-    persona.primary_goal = goal.lower()
-    return persona
+    persona_repo.upsert_persona(user_id, {"primary_goal": goal.lower()})
+    return get_persona(user_id)
 
 
 def clear_persona(user_id: str = "default") -> None:
     """Clear persona data for a user (useful for testing)."""
-    if user_id in _persona_store:
-        del _persona_store[user_id]
+    persona_repo.delete_persona(user_id)
 
 
 def get_missing_fields(user_id: str = "default") -> list[str]:
