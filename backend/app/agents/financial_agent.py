@@ -8,6 +8,7 @@ from app.agents.prediction_agent import get_prediction_agent, PredictionAgent
 from app.agents.budget_agent import get_budget_agent, BudgetAgent
 from app.agents.investment_agent import get_investment_agent, InvestmentStrategyAgent
 from app.tools.expense_tools import add_expense
+from app.repositories.expense_repo import get_category_spending_summary, get_total_spending
 from app.services.llm_client import llm_respond
 
 
@@ -151,6 +152,21 @@ class FinancialPlannerAgent:
         
         return any(phrase in message_lower for phrase in investment_phrases) or (has_invest_keyword and has_question)
 
+    def _is_expense_summary_query(self, message: str) -> bool:
+        """Check if the user is asking about their spending history/summary."""
+        message_lower = message.lower()
+        
+        expense_summary_phrases = [
+            "what have i spent", "where have i spent", "on which things have i spent",
+            "my expenses", "my spending", "show my expenses", "list my expenses",
+            "what did i spend", "spent on", "spending history", "expense history",
+            "spending breakdown", "expense breakdown", "all my expenses",
+            "how much have i spent", "total spending", "show spending",
+            "what are my expenses", "spending so far", "expenses so far"
+        ]
+        
+        return any(phrase in message_lower for phrase in expense_summary_phrases)
+
     def _parse_risk_level(self, message: str) -> Optional[str]:
         """Extract risk level from message."""
         # Don't parse if it should go to LLM
@@ -159,16 +175,20 @@ class FinancialPlannerAgent:
             
         message_lower = message.lower()
         
-        # Look for declaration patterns
-        declaration_patterns = ["i prefer", "i want", "i like", "my risk", "i'm", "i am"]
+        # Look for declaration patterns and common risk statements
+        declaration_patterns = [
+            "i prefer", "i want", "i like", "my risk", "i'm", "i am",
+            "i have", "risk level", "risk tolerance"
+        ]
         has_declaration = any(p in message_lower for p in declaration_patterns)
-        
-        if not has_declaration:
-            return None
-        
+
+        # Accept also if message contains 'risk' and a risk keyword
+        contains_risk = "risk" in message_lower
+
         for level, keywords in self.RISK_LEVELS.items():
             if any(kw in message_lower for kw in keywords):
-                return level
+                if has_declaration or contains_risk:
+                    return level
         return None
 
     def _parse_goal(self, message: str) -> Optional[str]:
@@ -537,14 +557,19 @@ class FinancialPlannerAgent:
             return response
 
         # Check for risk level update
+        # Broaden risk level parsing to catch more natural phrases
         risk_level = self._parse_risk_level(message)
         if risk_level is not None:
             self._persona_agent.update_persona(user_id, {"risk_level": risk_level})
-            response = f"Noted! I've set your risk tolerance to {risk_level}."
-            
+            response = (
+                f"Your risk tolerance is set to '{risk_level}'. "
+                "We'll focus on stable and secure options. "
+            )
             missing = self._persona_agent.get_missing_fields(user_id)
             if "primary_goal" in missing:
                 response += "\n\nWhat's your primary financial goal? (savings, investment, debt repayment, retirement)"
+            else:
+                response += "\n\nWould you like to discuss budgeting or investments next?"
             return response
 
         # Check for goal update
@@ -554,6 +579,34 @@ class FinancialPlannerAgent:
             response = f"Great! I've noted your primary goal as {goal.replace('_', ' ')}."
             if persona["monthly_income"]:
                 response += f"\n\nWith your ₹{persona['monthly_income']:,.0f} monthly income, I can now provide personalized recommendations!"
+            return response
+
+        # Check for expense summary/history queries
+        if self._is_expense_summary_query(message):
+            category_summary = get_category_spending_summary(user_id)
+            total_spent = get_total_spending(user_id)
+            
+            if not category_summary:
+                return (
+                    "You haven't logged any expenses yet. "
+                    "To track your spending, tell me about your expenses like:\n"
+                    "• 'Spent 2000 on rent'\n"
+                    "• 'Paid 500 for groceries'\n"
+                    "• 'Bought food for 200'"
+                )
+            
+            response = "📊 **Your Spending Summary**\n\n"
+            response += "| Category | Amount |\n|----------|--------|\n"
+            
+            for category, amount in sorted(category_summary.items(), key=lambda x: x[1], reverse=True):
+                response += f"| {category.capitalize()} | ₹{amount:,.0f} |\n"
+            
+            response += f"\n**Total Spent:** ₹{total_spent:,.0f}"
+            
+            if persona["monthly_income"]:
+                remaining = persona["monthly_income"] - total_spent
+                response += f"\n**Remaining Budget:** ₹{remaining:,.0f}"
+            
             return response
 
         # Check for prediction/analysis requests - consult PredictionAgent
@@ -583,7 +636,7 @@ class FinancialPlannerAgent:
         expense_data = self._parse_expense(message)
         if expense_data:
             amount, category, note = expense_data
-            add_expense(amount=amount, category=category, note=note)
+            add_expense(amount=amount, category=category, note=note, user_id=user_id)
             response = (
                 f"Got it! I've recorded your expense:\n"
                 f"• Amount: ₹{amount:,.2f}\n"
@@ -641,12 +694,13 @@ class FinancialPlannerAgent:
         if any(word in message_lower for word in ["income", "salary", "earn"]):
             if persona["monthly_income"]:
                 return (
-                    f"I have your monthly income recorded as ₹{persona['monthly_income']:,.0f}. "
+                    f"Your monthly income is recorded as ₹{persona['monthly_income']:,.0f}. "
                     "Would you like to update it? Just say something like 'My income is 50000 per month'."
                 )
             return (
-                "Great! Knowing your income helps me create a personalized budget. "
-                "Please tell me your monthly income (e.g., 'My income is 40000 per month')."
+                "I don't have your income information yet. "
+                "Please share your monthly income (e.g., 'My income is 40000 per month') "
+                "so I can provide personalized recommendations."
             )
 
         # Check for expense-related messages (only if not a question)

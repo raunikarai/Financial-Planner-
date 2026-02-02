@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agent import router as agent_router
+from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
 from app.db.session import init_db
 
 app = FastAPI(
@@ -28,7 +30,9 @@ def startup_event():
     init_db()
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(agent_router)
+app.include_router(admin_router)
 
 
 @app.get("/")
